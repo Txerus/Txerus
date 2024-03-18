@@ -15,7 +15,7 @@
 
 - ⚡ Fun fact **I think i'm funny**
   
-- ![@clement199192037 #30NitesOfCode](https://www.codedex.io/api/petStatus?user=clement199192037)
+ ![@clement199192037 #30NitesOfCode](https://www.codedex.io/api/petStatus?user=clement199192037)
  
 <h3 align="left">Connect with me:</h3>
 <p align="left">
