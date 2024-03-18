@@ -28,7 +28,7 @@
 
 <p>&nbsp;<img align="center" src="https://github-readme-stats.vercel.app/api?username=txerus&show_icons=true&locale=en" alt="txerus" /></p>
 
-<p><img align="center" src="https://github-readme-streak-stats.herokuapp.com/?user=txerus&" alt="txerus" /></p>
-## #30NitesOfCode:
+<p><img align="center" src="https://github-readme-streak-stats.herokuapp.com/?user=txerus&" alt="txerus" /> ## #30NitesOfCode:
   [Check out my progress!](https://www.codedex.io/@clement199192037/30-nites-of-code)  
-  ![@clement199192037 #30NitesOfCode](https://www.codedex.io/api/petStatus?user=clement199192037)
+  ![@clement199192037 #30NitesOfCode](https://www.codedex.io/api/petStatus?user=clement199192037)</p>
+
