@@ -14,6 +14,9 @@
 - 📫 How to reach me **clement.1991@hotmail.fr**
 
 - ⚡ Fun fact **I think i'm funny**
+- ## #30NitesOfCode:
+  [Check out my progress!](https://www.codedex.io/@clement199192037/30-nites-of-code)  
+  ![@clement199192037 #30NitesOfCode](https://www.codedex.io/api/petStatus?user=clement199192037)
 
 <h3 align="left">Connect with me:</h3>
 <p align="left">
