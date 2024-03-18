@@ -14,6 +14,8 @@
 - 📫 How to reach me **clement.1991@hotmail.fr**
 
 - ⚡ Fun fact **I think i'm funny**
+  
+- ![@clement199192037 #30NitesOfCode](https://www.codedex.io/api/petStatus?user=clement199192037)
  
 <h3 align="left">Connect with me:</h3>
 <p align="left">
@@ -28,7 +30,5 @@
 
 <p>&nbsp;<img align="center" src="https://github-readme-stats.vercel.app/api?username=txerus&show_icons=true&locale=en" alt="txerus" /></p>
 
-<p><img align="center" src="https://github-readme-streak-stats.herokuapp.com/?user=txerus&" alt="txerus" /> ## #30NitesOfCode:
-  [Check out my progress!](https://www.codedex.io/@clement199192037/30-nites-of-code)  
-  ![@clement199192037 #30NitesOfCode](https://www.codedex.io/api/petStatus?user=clement199192037)</p>
+<p><img align="center" src="https://github-readme-streak-stats.herokuapp.com/?user=txerus&" alt="txerus" /></p>
 
