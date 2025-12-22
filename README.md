@@ -11,8 +11,6 @@
 
 - 💬 Ask me about **react, vue and gasp**
 
-- 📫 How to reach me **clement.1991@hotmail.fr**
-
 - ⚡ Fun fact **I think i'm funny**
   
  ![@clement199192037 #30NitesOfCode](https://www.codedex.io/api/petStatus?user=clement199192037)
