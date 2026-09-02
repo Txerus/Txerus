@@ -6,6 +6,9 @@ import UIKit
 private final class NativeAirPlayPlayerPlugin: NSObject, FlutterPlugin, AVPlayerViewControllerDelegate, UIAdaptivePresentationControllerDelegate {
   private var playerViewController: AVPlayerViewController?
   private var pendingResult: FlutterResult?
+  private var isPiPActive = false
+  private var isPiPTransitioning = false
+  private var isFinishing = false
 
   static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(name: "playtorrio/native_player", binaryMessenger: registrar.messenger())
@@ -29,8 +32,10 @@ private final class NativeAirPlayPlayerPlugin: NSObject, FlutterPlugin, AVPlayer
         startMs: (args["startPositionMs"] as? NSNumber)?.int64Value ?? 0,
         result: result
       )
-    case "isAvailable": result(true)
-    default: result(FlutterMethodNotImplemented)
+    case "isAvailable":
+      result(true)
+    default:
+      result(FlutterMethodNotImplemented)
     }
   }
 
@@ -42,7 +47,7 @@ private final class NativeAirPlayPlayerPlugin: NSObject, FlutterPlugin, AVPlayer
 
     do {
       let session = AVAudioSession.sharedInstance()
-      try session.setCategory(.playback, mode: .moviePlayback, options: [])
+      try session.setCategory(.playback, mode: .moviePlayback, options: [.allowAirPlay])
       try session.setActive(true)
     } catch {
       NSLog("[PlayTorrio NativePlayer] AVAudioSession warning: \(error)")
@@ -54,13 +59,16 @@ private final class NativeAirPlayPlayerPlugin: NSObject, FlutterPlugin, AVPlayer
     let player = AVPlayer(playerItem: item)
     player.allowsExternalPlayback = true
     player.usesExternalPlaybackWhileExternalScreenIsActive = true
+    player.preventsDisplaySleepDuringVideoPlayback = true
 
     let controller = AVPlayerViewController()
     controller.player = player
     controller.delegate = self
     controller.showsPlaybackControls = true
     controller.allowsPictureInPicturePlayback = true
-    if #available(iOS 14.2, *) { controller.canStartPictureInPictureAutomaticallyFromInline = true }
+    if #available(iOS 14.2, *) {
+      controller.canStartPictureInPictureAutomaticallyFromInline = true
+    }
 
     if #available(iOS 15.0, *), let title = title {
       let metadata = AVMutableMetadataItem()
@@ -77,6 +85,11 @@ private final class NativeAirPlayPlayerPlugin: NSObject, FlutterPlugin, AVPlayer
 
     pendingResult = result
     playerViewController = controller
+    isPiPActive = false
+    isPiPTransitioning = false
+    isFinishing = false
+
+    controller.modalPresentationStyle = .fullScreen
     presenter.present(controller, animated: true) { [weak self] in
       controller.presentationController?.delegate = self
       if startMs > 0 {
@@ -86,24 +99,102 @@ private final class NativeAirPlayPlayerPlugin: NSObject, FlutterPlugin, AVPlayer
     }
   }
 
-  func presentationControllerDidDismiss(_ presentationController: UIPresentationController) { finishNativePlayback() }
+  // MARK: - Picture in Picture lifecycle
 
-  func playerViewController(_ playerViewController: AVPlayerViewController, willEndFullScreenPresentationWithAnimationCoordinator coordinator: UIViewControllerTransitionCoordinator) {
-    coordinator.animate(alongsideTransition: nil) { [weak self] _ in self?.finishNativePlayback() }
+  func playerViewControllerWillStartPictureInPicture(_ playerViewController: AVPlayerViewController) {
+    isPiPTransitioning = true
+    NSLog("[PlayTorrio NativePlayer] PiP will start")
+  }
+
+  func playerViewControllerDidStartPictureInPicture(_ playerViewController: AVPlayerViewController) {
+    isPiPActive = true
+    isPiPTransitioning = false
+    // IMPORTANT: keep AVPlayer, the HLS server and the Flutter MethodChannel call alive.
+    // Do not finish native playback here; Flutter/MPV stays paused while PiP owns playback.
+    NSLog("[PlayTorrio NativePlayer] PiP started")
+  }
+
+  func playerViewController(_ playerViewController: AVPlayerViewController, failedToStartPictureInPictureWithError error: Error) {
+    isPiPActive = false
+    isPiPTransitioning = false
+    NSLog("[PlayTorrio NativePlayer] PiP failed: \(error)")
+  }
+
+  func playerViewControllerWillStopPictureInPicture(_ playerViewController: AVPlayerViewController) {
+    isPiPTransitioning = true
+    NSLog("[PlayTorrio NativePlayer] PiP will stop")
+  }
+
+  func playerViewControllerDidStopPictureInPicture(_ playerViewController: AVPlayerViewController) {
+    isPiPActive = false
+    isPiPTransitioning = false
+    NSLog("[PlayTorrio NativePlayer] PiP stopped")
+  }
+
+  func playerViewController(
+    _ playerViewController: AVPlayerViewController,
+    restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
+  ) {
+    // Tapping the PiP window must return to the native Apple player, not the
+    // underlying Flutter/MPV player. Re-present the same controller & AVPlayer.
+    if playerViewController.presentingViewController != nil || playerViewController.viewIfLoaded?.window != nil {
+      completionHandler(true)
+      return
+    }
+
+    guard let presenter = topViewController() else {
+      completionHandler(false)
+      return
+    }
+
+    presenter.present(playerViewController, animated: true) {
+      playerViewController.presentationController?.delegate = self
+      completionHandler(true)
+    }
+  }
+
+  // MARK: - Full-screen / dismissal lifecycle
+
+  func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+    // AVPlayerViewController can disappear while iOS is moving playback into PiP.
+    // In that case, the native session must remain alive.
+    guard !isPiPActive && !isPiPTransitioning else { return }
+    finishNativePlayback()
+  }
+
+  func playerViewController(
+    _ playerViewController: AVPlayerViewController,
+    willEndFullScreenPresentationWithAnimationCoordinator coordinator: UIViewControllerTransitionCoordinator
+  ) {
+    coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+      guard let self = self else { return }
+      guard !self.isPiPActive && !self.isPiPTransitioning else { return }
+      // If the controller is still visible/presented, this was only a UIKit
+      // full-screen transition and not an explicit close. Keep native playback.
+      if playerViewController.presentingViewController != nil || playerViewController.viewIfLoaded?.window != nil {
+        return
+      }
+      self.finishNativePlayback()
+    }
   }
 
   private func finishNativePlayback() {
-    guard let controller = playerViewController else { return }
+    guard !isFinishing, !isPiPActive, !isPiPTransitioning,
+          let controller = playerViewController else { return }
+    isFinishing = true
+
     let player = controller.player
     let position = player?.currentTime().seconds ?? 0
     let duration = player?.currentItem?.duration.seconds ?? 0
     player?.pause()
+
     pendingResult?([
       "positionMs": position.isFinite ? Int64(max(0, position) * 1000) : 0,
       "durationMs": duration.isFinite ? Int64(max(0, duration) * 1000) : 0
     ])
     pendingResult = nil
     playerViewController = nil
+    isFinishing = false
   }
 
   private func topViewController() -> UIViewController? {
@@ -118,14 +209,19 @@ private final class NativeAirPlayPlayerPlugin: NSObject, FlutterPlugin, AVPlayer
   private func topViewController(from root: UIViewController?) -> UIViewController? {
     if let nav = root as? UINavigationController { return topViewController(from: nav.visibleViewController) }
     if let tab = root as? UITabBarController { return topViewController(from: tab.selectedViewController) }
-    if let presented = root?.presentedViewController { return topViewController(from: presented) }
+    if let presented = root?.presentedViewController, presented !== playerViewController {
+      return topViewController(from: presented)
+    }
     return root
   }
 }
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
-  override func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+  override func application(
+    _ application: UIApplication,
+    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
+  ) -> Bool {
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
