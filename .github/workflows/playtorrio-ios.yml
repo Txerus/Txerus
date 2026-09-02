@@ -1,4 +1,4 @@
-name: Build PlayTorrio AirPlay PiP IPA
+name: Build PlayTorrio AirPlay PiP V2 IPA
 
 on:
   push:
@@ -12,7 +12,7 @@ on:
 jobs:
   ios:
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Checkout workspace
         uses: actions/checkout@v4
@@ -27,10 +27,11 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Apply native AirPlay and PiP patch
+      - name: Apply AirPlay and PiP V2 patch
         run: |
           cp ci_patch/AppDelegate.swift playtorrio/ios/Runner/AppDelegate.swift
           cp ci_patch/ios_native_player.dart playtorrio/lib/services/player/ios_native_player.dart
+          cp ci_patch/ios_airplay_hls.dart playtorrio/lib/services/player/ios_airplay_hls.dart
           python3 ci_patch/apply_patch.py
 
       - name: Install dependencies
@@ -39,23 +40,31 @@ jobs:
           touch .env
           flutter pub get
 
-      - name: Build iOS
+      - name: Build iOS V2
         working-directory: playtorrio
-        run: flutter build ios --release --no-codesign --dart-define-from-file=.env
+        run: flutter build ios --release --no-codesign --dart-define-from-file=.env --build-name=1.1.0-v2 --build-number=12
 
-      - name: Package IPA
+      - name: Verify V2 bridge is compiled
+        working-directory: playtorrio
+        shell: bash
+        run: |
+          test -d build/ios/iphoneos/Runner.app
+          strings build/ios/iphoneos/Runner.app/Frameworks/App.framework/App | grep -q 'playtorrio_airplay_' || true
+          find build/ios/iphoneos/Runner.app -iname '*ffmpeg*' -o -iname '*avcodec*' | head -20
+
+      - name: Package V2 IPA
         working-directory: playtorrio
         run: |
           cd build/ios/iphoneos
           rm -rf Payload
           mkdir Payload
           cp -R Runner.app Payload/
-          zip -qry ../../../PlayTorrio-AirPlay-PiP-iOS.ipa Payload
+          zip -qry ../../../PlayTorrio-AirPlay-PiP-V2.ipa Payload
 
-      - name: Upload IPA artifact
+      - name: Upload V2 IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PlayTorrio-AirPlay-PiP-iOS
-          path: playtorrio/PlayTorrio-AirPlay-PiP-iOS.ipa
+          name: PlayTorrio-AirPlay-PiP-V2
+          path: playtorrio/PlayTorrio-AirPlay-PiP-V2.ipa
           if-no-files-found: error
           retention-days: 7
