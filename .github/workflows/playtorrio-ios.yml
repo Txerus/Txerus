@@ -1,14 +1,61 @@
-name: PlayTorrio CI Test
+name: Build PlayTorrio AirPlay PiP IPA
 
 on:
   push:
     branches:
       - main
+    paths:
+      - 'ci_patch/**'
+      - '.github/workflows/playtorrio-ios.yml'
   workflow_dispatch:
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  ios:
+    runs-on: macos-latest
+    timeout-minutes: 60
     steps:
-      - name: Test runner
-        run: echo "GitHub Actions is working"
+      - name: Checkout workspace
+        uses: actions/checkout@v4
+
+      - name: Clone PlayTorrio
+        run: git clone --depth 1 https://github.com/ayman708-UX/PlayTorrioV3.git playtorrio
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.9'
+          channel: stable
+          cache: true
+
+      - name: Apply native AirPlay and PiP patch
+        run: |
+          cp ci_patch/AppDelegate.swift playtorrio/ios/Runner/AppDelegate.swift
+          cp ci_patch/ios_native_player.dart playtorrio/lib/services/player/ios_native_player.dart
+          python3 ci_patch/apply_patch.py
+
+      - name: Install dependencies
+        working-directory: playtorrio
+        run: |
+          touch .env
+          flutter pub get
+
+      - name: Build iOS
+        working-directory: playtorrio
+        run: flutter build ios --release --no-codesign --dart-define-from-file=.env
+
+      - name: Package IPA
+        working-directory: playtorrio
+        run: |
+          cd build/ios/iphoneos
+          rm -rf Payload
+          mkdir Payload
+          cp -R Runner.app Payload/
+          zip -qry ../../../PlayTorrio-AirPlay-PiP-iOS.ipa Payload
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PlayTorrio-AirPlay-PiP-iOS
+          path: playtorrio/PlayTorrio-AirPlay-PiP-iOS.ipa
+          if-no-files-found: error
+          retention-days: 7
