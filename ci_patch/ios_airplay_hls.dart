@@ -16,33 +16,22 @@ abstract final class IosAirPlayHls {
 
   static String _headersArg(Map<String, String> headers) {
     if (headers.isEmpty) return '';
-    final lines = headers.entries
-        .where((e) => e.key.trim().isNotEmpty)
-        .map((e) => '${e.key}: ${e.value}')
-        .join('\\r\\n');
+    final lines = headers.entries.where((e) => e.key.trim().isNotEmpty).map((e) => '${e.key}: ${e.value}').join('\\r\\n');
     return '-headers ${_quote('$lines\\r\\n')} ';
   }
 
   static Future<String> _bestHost() async {
     try {
-      final interfaces = await NetworkInterface.list(
-        type: InternetAddressType.IPv4,
-        includeLoopback: false,
-      );
+      final interfaces = await NetworkInterface.list(type: InternetAddressType.IPv4, includeLoopback: false);
       for (final interface in interfaces) {
         for (final address in interface.addresses) {
           final ip = address.address;
           if (ip.startsWith('192.168.') || ip.startsWith('10.')) return ip;
           if (ip.startsWith('172.')) {
-            final parts = ip.split('.');
-            final second = parts.length > 1 ? int.tryParse(parts[1]) : null;
-            if (second != null && second >= 16 && second <= 31) return ip;
+            final p = ip.split('.');
+            final n = p.length > 1 ? int.tryParse(p[1]) : null;
+            if (n != null && n >= 16 && n <= 31) return ip;
           }
-        }
-      }
-      for (final interface in interfaces) {
-        for (final address in interface.addresses) {
-          if (!address.isLoopback) return address.address;
         }
       }
     } catch (_) {}
@@ -53,50 +42,44 @@ abstract final class IosAirPlayHls {
     final server = await HttpServer.bind(InternetAddress.anyIPv4, 0, shared: true);
     server.listen((request) async {
       try {
-        final relative = request.uri.pathSegments.isEmpty
-            ? 'master.m3u8'
-            : request.uri.pathSegments.last;
-        final safeName = relative.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '');
-        final file = File('${root.path}/$safeName');
+        final relative = request.uri.pathSegments.isEmpty ? 'master.m3u8' : request.uri.pathSegments.last;
+        final safe = relative.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '');
+        final file = File('${root.path}/$safe');
         if (!await file.exists()) {
           request.response.statusCode = HttpStatus.notFound;
           await request.response.close();
           return;
         }
-
-        if (safeName.endsWith('.m3u8')) {
+        if (safe.endsWith('.m3u8')) {
           request.response.headers.contentType = ContentType('application', 'vnd.apple.mpegurl');
           request.response.headers.set(HttpHeaders.cacheControlHeader, 'no-cache, no-store');
-        } else if (safeName.endsWith('.m4s')) {
+        } else if (safe.endsWith('.m4s')) {
           request.response.headers.contentType = ContentType('video', 'iso.segment');
-        } else if (safeName.endsWith('.mp4')) {
+        } else if (safe.endsWith('.mp4')) {
           request.response.headers.contentType = ContentType('video', 'mp4');
         }
         request.response.headers.set('Access-Control-Allow-Origin', '*');
         await request.response.addStream(file.openRead());
         await request.response.close();
       } catch (_) {
-        try {
-          request.response.statusCode = HttpStatus.internalServerError;
-          await request.response.close();
-        } catch (_) {}
+        try { request.response.statusCode = 500; await request.response.close(); } catch (_) {}
       }
     });
     return server;
   }
 
-  static Future<void> _waitForPlaylist(File playlist) async {
+  static Future<void> _waitForBuffer(File playlist, {int segments = 4}) async {
     final deadline = DateTime.now().add(const Duration(seconds: 35));
     while (DateTime.now().isBefore(deadline)) {
       if (await playlist.exists()) {
         try {
           final text = await playlist.readAsString();
-          if (text.contains('#EXTINF') || text.contains('#EXT-X-MAP')) return;
+          if ('#EXTINF'.allMatches(text).length >= segments) return;
         } catch (_) {}
       }
       await Future<void>.delayed(const Duration(milliseconds: 250));
     }
-    throw StateError('Le flux AirPlay n’a pas pu être préparé dans le délai imparti.');
+    throw StateError('Le flux AirPlay n’a pas pu être préparé.');
   }
 
   static Future<IosAirPlayHlsResult?> open({
@@ -106,75 +89,54 @@ abstract final class IosAirPlayHls {
     required Duration startPosition,
   }) async {
     if (!Platform.isIOS) return null;
+    // Never allow an old conversion session to compete for VideoToolbox/CPU.
+    try { await FFmpegKit.cancel(); } catch (_) {}
 
     final temp = await getTemporaryDirectory();
-    final dir = await Directory(
-      '${temp.path}/playtorrio_airplay_${DateTime.now().millisecondsSinceEpoch}',
-    ).create(recursive: true);
+    final dir = await Directory('${temp.path}/playtorrio_airplay_${DateTime.now().millisecondsSinceEpoch}').create(recursive: true);
     final playlist = File('${dir.path}/master.m3u8');
-
     HttpServer? server;
     int? sessionId;
+
     try {
       server = await _startServer(dir);
       final host = await _bestHost();
       final hlsUrl = 'http://$host:${server.port}/master.m3u8';
-
-      final ss = startPosition > Duration.zero
-          ? '-ss ${(startPosition.inMilliseconds / 1000.0).toStringAsFixed(3)} '
-          : '';
+      final ss = startPosition > Duration.zero ? '-ss ${(startPosition.inMilliseconds / 1000.0).toStringAsFixed(3)} ' : '';
       final headerArg = _headersArg(headers);
       final input = _quote(sourceUrl);
       final segmentPattern = _quote('${dir.path}/seg_%06d.m4s');
-      final initName = 'init.mp4';
       final output = _quote(playlist.path);
 
-      // V2 deliberately transcodes to Apple-native H.264/AAC. This avoids the
-      // black-screen failure seen when AVPlayer receives MKV/unsupported codecs.
-      // VideoToolbox keeps the conversion hardware accelerated on iPhone.
-      final command =
-          '-hide_banner -loglevel warning -y '
-          '$ss$headerArg'
-          '-i $input '
+      // V3: stream-copy/remux first. No video decode/re-encode means almost no
+      // GPU/CPU load and avoids A/V drift. AVPlayer-compatible H.264/HEVC streams
+      // are simply repackaged as fragmented-MP4 HLS. AAC is also copied.
+      final command = '-hide_banner -loglevel warning -y '
+          '$ss$headerArg-i $input '
           '-map 0:v:0 -map 0:a:0? -sn -dn '
-          '-c:v h264_videotoolbox -allow_sw 1 -realtime 1 '
-          '-b:v 6500k -maxrate 9000k -bufsize 13000k -pix_fmt yuv420p '
-          '-c:a aac -b:a 192k -ac 2 '
-          '-force_key_frames ${_quote('expr:gte(t,n_forced*2)')} '
-          '-f hls -hls_time 2 -hls_playlist_type event '
-          '-hls_segment_type fmp4 -hls_fmp4_init_filename $initName '
+          '-c:v copy -c:a copy '
+          '-fflags +genpts -avoid_negative_ts make_zero '
+          '-max_interleave_delta 0 '
+          '-f hls -hls_time 4 -hls_playlist_type event '
+          '-hls_segment_type fmp4 -hls_fmp4_init_filename init.mp4 '
           '-hls_flags independent_segments+temp_file '
           '-hls_segment_filename $segmentPattern $output';
 
-      final session = await FFmpegKit.executeAsync(command, (completed) async {
-        // Completion is expected when the source ends or when we cancel after
-        // closing AVPlayer. Runtime errors are surfaced by the playlist timeout.
-      });
+      final session = await FFmpegKit.executeAsync(command, (_) async {});
       sessionId = session.getSessionId();
+      // Give AVPlayer ~16 seconds of material before starting. This is deliberate:
+      // AirPlay/PiP is much smoother with a real initial buffer than a 1-segment edge.
+      await _waitForBuffer(playlist, segments: 4);
 
-      await _waitForPlaylist(playlist);
-
-      final native = await IosNativePlayer.open(
-        url: hlsUrl,
-        title: title,
-        headers: const {},
-        startPosition: Duration.zero,
-      );
-
+      final native = await IosNativePlayer.open(url: hlsUrl, title: title, headers: const {}, startPosition: Duration.zero);
       if (native == null) return null;
       return IosAirPlayHlsResult(startPosition + native.position);
     } finally {
       if (sessionId != null) {
-        try {
-          await FFmpegKit.cancel(sessionId);
-        } catch (_) {}
+        try { await FFmpegKit.cancel(sessionId); } catch (_) {}
       }
-      try {
-        await server?.close(force: true);
-      } catch (_) {}
-      try {
-        if (await dir.exists()) await dir.delete(recursive: true);
-      } catch (_) {}
+      try { await server?.close(force: true); } catch (_) {}
+      try { if (await dir.exists()) await dir.delete(recursive: true); } catch (_) {}
     }
   }
 }
