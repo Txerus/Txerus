@@ -1,4 +1,4 @@
-name: Build PlayTorrio AirPlay PiP V2 IPA
+name: Build PlayTorrio AirPlay PiP V3 IPA
 
 on:
   push:
@@ -27,7 +27,7 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Apply AirPlay and PiP V2 patch
+      - name: Apply optimized AirPlay and PiP patch
         run: |
           cp ci_patch/AppDelegate.swift playtorrio/ios/Runner/AppDelegate.swift
           cp ci_patch/ios_native_player.dart playtorrio/lib/services/player/ios_native_player.dart
@@ -40,31 +40,30 @@ jobs:
           touch .env
           flutter pub get
 
-      - name: Build iOS V2
+      - name: Build iOS V3
         working-directory: playtorrio
-        run: flutter build ios --release --no-codesign --dart-define-from-file=.env --build-name=1.1.0-v2 --build-number=12
+        run: flutter build ios --release --no-codesign --dart-define-from-file=.env --build-name=1.1.0-v3 --build-number=13
 
-      - name: Verify V2 bridge is compiled
+      - name: Verify bridge
         working-directory: playtorrio
         shell: bash
         run: |
           test -d build/ios/iphoneos/Runner.app
-          strings build/ios/iphoneos/Runner.app/Frameworks/App.framework/App | grep -q 'playtorrio_airplay_' || true
           find build/ios/iphoneos/Runner.app -iname '*ffmpeg*' -o -iname '*avcodec*' | head -20
 
-      - name: Package V2 IPA
+      - name: Package V3 IPA
         working-directory: playtorrio
         run: |
           cd build/ios/iphoneos
           rm -rf Payload
           mkdir Payload
           cp -R Runner.app Payload/
-          zip -qry ../../../PlayTorrio-AirPlay-PiP-V2.ipa Payload
+          zip -qry ../../../PlayTorrio-AirPlay-PiP-V3.ipa Payload
 
-      - name: Upload V2 IPA artifact
+      - name: Upload V3 IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PlayTorrio-AirPlay-PiP-V2
-          path: playtorrio/PlayTorrio-AirPlay-PiP-V2.ipa
+          name: PlayTorrio-AirPlay-PiP-V3
+          path: playtorrio/PlayTorrio-AirPlay-PiP-V3.ipa
           if-no-files-found: error
           retention-days: 7
