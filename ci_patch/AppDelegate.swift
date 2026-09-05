@@ -26,13 +26,7 @@ private final class NativeAirPlayPlayerPlugin: NSObject, FlutterPlugin, AVPlayer
         result(FlutterError(code: "bad_args", message: "Missing or invalid URL.", details: nil))
         return
       }
-      presentPlayer(
-        url: url,
-        title: args["title"] as? String,
-        headers: args["headers"] as? [String: String] ?? [:],
-        startMs: (args["startPositionMs"] as? NSNumber)?.int64Value ?? 0,
-        result: result
-      )
+      presentPlayer(url: url, title: args["title"] as? String, headers: args["headers"] as? [String: String] ?? [:], startMs: (args["startPositionMs"] as? NSNumber)?.int64Value ?? 0, result: result)
     case "isAvailable":
       result(true)
     default:
@@ -45,7 +39,6 @@ private final class NativeAirPlayPlayerPlugin: NSObject, FlutterPlugin, AVPlayer
       result(FlutterError(code: "already_open", message: "Native player is already open.", details: nil))
       return
     }
-
     do {
       let session = AVAudioSession.sharedInstance()
       try session.setCategory(.playback, mode: .moviePlayback, options: [.allowAirPlay])
@@ -53,7 +46,6 @@ private final class NativeAirPlayPlayerPlugin: NSObject, FlutterPlugin, AVPlayer
     } catch {
       NSLog("[PlayTorrio NativePlayer] AVAudioSession warning: \(error)")
     }
-
     var options: [String: Any] = [:]
     if !headers.isEmpty { options["AVURLAssetHTTPHeaderFieldsKey"] = headers }
     let item = AVPlayerItem(asset: AVURLAsset(url: url, options: options))
@@ -61,16 +53,12 @@ private final class NativeAirPlayPlayerPlugin: NSObject, FlutterPlugin, AVPlayer
     player.allowsExternalPlayback = true
     player.usesExternalPlaybackWhileExternalScreenIsActive = true
     player.preventsDisplaySleepDuringVideoPlayback = true
-
     let controller = AVPlayerViewController()
     controller.player = player
     controller.delegate = self
     controller.showsPlaybackControls = true
     controller.allowsPictureInPicturePlayback = true
-    if #available(iOS 14.2, *) {
-      controller.canStartPictureInPictureAutomaticallyFromInline = true
-    }
-
+    if #available(iOS 14.2, *) { controller.canStartPictureInPictureAutomaticallyFromInline = true }
     if #available(iOS 15.0, *), let title = title {
       let metadata = AVMutableMetadataItem()
       metadata.identifier = .commonIdentifierTitle
@@ -78,24 +66,19 @@ private final class NativeAirPlayPlayerPlugin: NSObject, FlutterPlugin, AVPlayer
       metadata.extendedLanguageTag = "und"
       item.externalMetadata = [metadata.copy() as! AVMetadataItem]
     }
-
     guard let presenter = topViewController() else {
       result(FlutterError(code: "no_presenter", message: "Unable to find an iOS view controller.", details: nil))
       return
     }
-
     pendingResult = result
     playerViewController = controller
     isPiPActive = false
     isPiPTransitioning = false
     isFinishing = false
-
     controller.modalPresentationStyle = .fullScreen
     presenter.present(controller, animated: true) { [weak self] in
       controller.presentationController?.delegate = self
-      if startMs > 0 {
-        player.seek(to: CMTime(value: startMs, timescale: 1000), toleranceBefore: .zero, toleranceAfter: .zero)
-      }
+      if startMs > 0 { player.seek(to: CMTime(value: startMs, timescale: 1000), toleranceBefore: .zero, toleranceAfter: .zero) }
       player.play()
     }
   }
@@ -106,18 +89,9 @@ private final class NativeAirPlayPlayerPlugin: NSObject, FlutterPlugin, AVPlayer
   func playerViewControllerWillStopPictureInPicture(_ playerViewController: AVPlayerViewController) { isPiPTransitioning = true }
   func playerViewControllerDidStopPictureInPicture(_ playerViewController: AVPlayerViewController) { isPiPActive = false; isPiPTransitioning = false }
 
-  func playerViewController(
-    _ playerViewController: AVPlayerViewController,
-    restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
-  ) {
-    if playerViewController.presentingViewController != nil || playerViewController.viewIfLoaded?.window != nil {
-      completionHandler(true)
-      return
-    }
-    guard let presenter = topViewController() else {
-      completionHandler(false)
-      return
-    }
+  func playerViewController(_ playerViewController: AVPlayerViewController, restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void) {
+    if playerViewController.presentingViewController != nil || playerViewController.viewIfLoaded?.window != nil { completionHandler(true); return }
+    guard let presenter = topViewController() else { completionHandler(false); return }
     presenter.present(playerViewController, animated: true) {
       playerViewController.presentationController?.delegate = self
       completionHandler(true)
@@ -129,41 +103,29 @@ private final class NativeAirPlayPlayerPlugin: NSObject, FlutterPlugin, AVPlayer
     finishNativePlayback()
   }
 
-  func playerViewController(
-    _ playerViewController: AVPlayerViewController,
-    willEndFullScreenPresentationWithAnimationCoordinator coordinator: UIViewControllerTransitionCoordinator
-  ) {
+  func playerViewController(_ playerViewController: AVPlayerViewController, willEndFullScreenPresentationWithAnimationCoordinator coordinator: UIViewControllerTransitionCoordinator) {
     coordinator.animate(alongsideTransition: nil) { [weak self] _ in
-      guard let self = self else { return }
-      guard !self.isPiPActive && !self.isPiPTransitioning else { return }
+      guard let self = self, !self.isPiPActive, !self.isPiPTransitioning else { return }
       if playerViewController.presentingViewController != nil || playerViewController.viewIfLoaded?.window != nil { return }
       self.finishNativePlayback()
     }
   }
 
   private func finishNativePlayback() {
-    guard !isFinishing, !isPiPActive, !isPiPTransitioning,
-          let controller = playerViewController else { return }
+    guard !isFinishing, !isPiPActive, !isPiPTransitioning, let controller = playerViewController else { return }
     isFinishing = true
     let player = controller.player
     let position = player?.currentTime().seconds ?? 0
     let duration = player?.currentItem?.duration.seconds ?? 0
     player?.pause()
-    pendingResult?([
-      "positionMs": position.isFinite ? Int64(max(0, position) * 1000) : 0,
-      "durationMs": duration.isFinite ? Int64(max(0, duration) * 1000) : 0
-    ])
+    pendingResult?(["positionMs": position.isFinite ? Int64(max(0, position) * 1000) : 0, "durationMs": duration.isFinite ? Int64(max(0, duration) * 1000) : 0])
     pendingResult = nil
     playerViewController = nil
     isFinishing = false
   }
 
   private func topViewController() -> UIViewController? {
-    let root = UIApplication.shared.connectedScenes
-      .compactMap { $0 as? UIWindowScene }
-      .filter { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }
-      .flatMap { $0.windows }
-      .first(where: { $0.isKeyWindow })?.rootViewController
+    let root = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.filter { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }.flatMap { $0.windows }.first(where: { $0.isKeyWindow })?.rootViewController
     return topViewController(from: root)
   }
 
@@ -181,37 +143,23 @@ final class PlayTorrioCarPlaySceneDelegate: UIResponder, CPTemplateApplicationSc
   private weak var interfaceController: CPInterfaceController?
   private weak var carWindow: CPWindow?
 
-  func templateApplicationScene(
-    _ templateApplicationScene: CPTemplateApplicationScene,
-    didConnect interfaceController: CPInterfaceController
-  ) {
+  func templateApplicationScene(_ templateApplicationScene: CPTemplateApplicationScene, didConnect interfaceController: CPInterfaceController) {
     NSLog("[PlayTorrio CarPlay V5] didConnect interfaceController")
     configure(interfaceController: interfaceController, window: nil)
   }
 
-  func templateApplicationScene(
-    _ templateApplicationScene: CPTemplateApplicationScene,
-    didConnect interfaceController: CPInterfaceController,
-    to window: CPWindow
-  ) {
+  func templateApplicationScene(_ templateApplicationScene: CPTemplateApplicationScene, didConnect interfaceController: CPInterfaceController, to window: CPWindow) {
     NSLog("[PlayTorrio CarPlay V5] didConnect interfaceController + CPWindow")
     configure(interfaceController: interfaceController, window: window)
   }
 
-  func templateApplicationScene(
-    _ templateApplicationScene: CPTemplateApplicationScene,
-    didDisconnectInterfaceController interfaceController: CPInterfaceController
-  ) {
+  func templateApplicationScene(_ templateApplicationScene: CPTemplateApplicationScene, didDisconnectInterfaceController interfaceController: CPInterfaceController) {
     NSLog("[PlayTorrio CarPlay V5] didDisconnect interfaceController")
     self.interfaceController = nil
     self.carWindow = nil
   }
 
-  func templateApplicationScene(
-    _ templateApplicationScene: CPTemplateApplicationScene,
-    didDisconnect interfaceController: CPInterfaceController,
-    from window: CPWindow
-  ) {
+  func templateApplicationScene(_ templateApplicationScene: CPTemplateApplicationScene, didDisconnect interfaceController: CPInterfaceController, from window: CPWindow) {
     NSLog("[PlayTorrio CarPlay V5] didDisconnect interfaceController + CPWindow")
     self.interfaceController = nil
     self.carWindow = nil
@@ -220,51 +168,33 @@ final class PlayTorrioCarPlaySceneDelegate: UIResponder, CPTemplateApplicationSc
   private func configure(interfaceController: CPInterfaceController, window: CPWindow?) {
     self.interfaceController = interfaceController
     self.carWindow = window
-
-    if let window {
-      NSLog("[PlayTorrio CarPlay V5] CPWindow screen bounds = %@", NSStringFromCGRect(window.screen.bounds))
-    }
+    if let window { NSLog("[PlayTorrio CarPlay V5] CPWindow screen bounds = \(window.screen.bounds)") }
 
     let tv = CPListItem(text: "TV / IPTV", detailText: "Chaînes en direct")
-    tv.handler = { [weak self] _, completion in
-      self?.showInfo(title: "TV / IPTV", text: "Ouvre la chaîne sur l’iPhone puis utilise le lecteur natif PlayTorrio.")
-      completion()
-    }
-
+    tv.handler = { [weak self] _, completion in self?.showInfo(title: "TV / IPTV", text: "Ouvre la chaîne sur l’iPhone puis utilise le lecteur natif PlayTorrio."); completion() }
     let movies = CPListItem(text: "Films & Séries", detailText: "Lecture PlayTorrio")
-    movies.handler = { [weak self] _, completion in
-      self?.showInfo(title: "Films & Séries", text: "La vidéo CarPlay reste contrôlée par iOS et le véhicule.")
-      completion()
-    }
-
+    movies.handler = { [weak self] _, completion in self?.showInfo(title: "Films & Séries", text: "La vidéo CarPlay reste contrôlée par iOS et le véhicule."); completion() }
     let diagnostics = CPListItem(text: "Diagnostic CarPlay V5", detailText: window == nil ? "Scène sans CPWindow" : "CPWindow connectée")
-    let section = CPListSection(items: [tv, movies, diagnostics])
-    let root = CPListTemplate(title: "PlayTorrio", sections: [section])
+    let root = CPListTemplate(title: "PlayTorrio", sections: [CPListSection(items: [tv, movies, diagnostics])])
     interfaceController.setRootTemplate(root, animated: false, completion: nil)
   }
 
   private func showInfo(title: String, text: String) {
     guard let interfaceController else { return }
     let action = CPAlertAction(title: "OK", style: .default) { _ in }
-    let alert = CPAlertTemplate(titleVariants: [title, text], actions: [action])
-    interfaceController.presentTemplate(alert, animated: true, completion: nil)
+    interfaceController.presentTemplate(CPAlertTemplate(titleVariants: [title, text], actions: [action]), animated: true, completion: nil)
   }
 }
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
-  override func application(
-    _ application: UIApplication,
-    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
-  ) -> Bool {
+  override func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
     NSLog("[PlayTorrio CarPlay V5] app launched")
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "NativeAirPlayPlayerPlugin") {
-      NativeAirPlayPlayerPlugin.register(with: registrar)
-    }
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "NativeAirPlayPlayerPlugin") { NativeAirPlayPlayerPlugin.register(with: registrar) }
   }
 }
