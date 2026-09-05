@@ -100,28 +100,11 @@ private final class NativeAirPlayPlayerPlugin: NSObject, FlutterPlugin, AVPlayer
     }
   }
 
-  func playerViewControllerWillStartPictureInPicture(_ playerViewController: AVPlayerViewController) {
-    isPiPTransitioning = true
-  }
-
-  func playerViewControllerDidStartPictureInPicture(_ playerViewController: AVPlayerViewController) {
-    isPiPActive = true
-    isPiPTransitioning = false
-  }
-
-  func playerViewController(_ playerViewController: AVPlayerViewController, failedToStartPictureInPictureWithError error: Error) {
-    isPiPActive = false
-    isPiPTransitioning = false
-  }
-
-  func playerViewControllerWillStopPictureInPicture(_ playerViewController: AVPlayerViewController) {
-    isPiPTransitioning = true
-  }
-
-  func playerViewControllerDidStopPictureInPicture(_ playerViewController: AVPlayerViewController) {
-    isPiPActive = false
-    isPiPTransitioning = false
-  }
+  func playerViewControllerWillStartPictureInPicture(_ playerViewController: AVPlayerViewController) { isPiPTransitioning = true }
+  func playerViewControllerDidStartPictureInPicture(_ playerViewController: AVPlayerViewController) { isPiPActive = true; isPiPTransitioning = false }
+  func playerViewController(_ playerViewController: AVPlayerViewController, failedToStartPictureInPictureWithError error: Error) { isPiPActive = false; isPiPTransitioning = false }
+  func playerViewControllerWillStopPictureInPicture(_ playerViewController: AVPlayerViewController) { isPiPTransitioning = true }
+  func playerViewControllerDidStopPictureInPicture(_ playerViewController: AVPlayerViewController) { isPiPActive = false; isPiPTransitioning = false }
 
   func playerViewController(
     _ playerViewController: AVPlayerViewController,
@@ -187,9 +170,7 @@ private final class NativeAirPlayPlayerPlugin: NSObject, FlutterPlugin, AVPlayer
   private func topViewController(from root: UIViewController?) -> UIViewController? {
     if let nav = root as? UINavigationController { return topViewController(from: nav.visibleViewController) }
     if let tab = root as? UITabBarController { return topViewController(from: tab.selectedViewController) }
-    if let presented = root?.presentedViewController, presented !== playerViewController {
-      return topViewController(from: presented)
-    }
+    if let presented = root?.presentedViewController, presented !== playerViewController { return topViewController(from: presented) }
     return root
   }
 }
@@ -198,37 +179,68 @@ private final class NativeAirPlayPlayerPlugin: NSObject, FlutterPlugin, AVPlayer
 @objc(PlayTorrioCarPlaySceneDelegate)
 final class PlayTorrioCarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
   private weak var interfaceController: CPInterfaceController?
+  private weak var carWindow: CPWindow?
 
   func templateApplicationScene(
     _ templateApplicationScene: CPTemplateApplicationScene,
     didConnect interfaceController: CPInterfaceController
   ) {
-    self.interfaceController = interfaceController
+    NSLog("[PlayTorrio CarPlay V5] didConnect interfaceController")
+    configure(interfaceController: interfaceController, window: nil)
+  }
 
-    let tv = CPListItem(text: "TV / IPTV", detailText: "Chaînes en direct")
-    tv.handler = { [weak self] _, completion in
-      self?.showInfo(title: "TV / IPTV", text: "Lance une chaîne dans PlayTorrio sur l’iPhone puis utilise AirPlay vidéo vers la voiture.")
-      completion()
-    }
-
-    let movies = CPListItem(text: "Films & Séries", detailText: "Lecture vidéo PlayTorrio")
-    movies.handler = { [weak self] _, completion in
-      self?.showInfo(title: "Films & Séries", text: "Lance le contenu sur l’iPhone. Le lecteur natif PlayTorrio prend en charge AirPlay et PiP.")
-      completion()
-    }
-
-    let status = CPListItem(text: "CarPlay iOS 27", detailText: "Mode vidéo à l’arrêt")
-
-    let section = CPListSection(items: [tv, movies, status])
-    let root = CPListTemplate(title: "PlayTorrio", sections: [section])
-    interfaceController.setRootTemplate(root, animated: false, completion: nil)
+  func templateApplicationScene(
+    _ templateApplicationScene: CPTemplateApplicationScene,
+    didConnect interfaceController: CPInterfaceController,
+    to window: CPWindow
+  ) {
+    NSLog("[PlayTorrio CarPlay V5] didConnect interfaceController + CPWindow")
+    configure(interfaceController: interfaceController, window: window)
   }
 
   func templateApplicationScene(
     _ templateApplicationScene: CPTemplateApplicationScene,
     didDisconnectInterfaceController interfaceController: CPInterfaceController
   ) {
+    NSLog("[PlayTorrio CarPlay V5] didDisconnect interfaceController")
     self.interfaceController = nil
+    self.carWindow = nil
+  }
+
+  func templateApplicationScene(
+    _ templateApplicationScene: CPTemplateApplicationScene,
+    didDisconnect interfaceController: CPInterfaceController,
+    from window: CPWindow
+  ) {
+    NSLog("[PlayTorrio CarPlay V5] didDisconnect interfaceController + CPWindow")
+    self.interfaceController = nil
+    self.carWindow = nil
+  }
+
+  private func configure(interfaceController: CPInterfaceController, window: CPWindow?) {
+    self.interfaceController = interfaceController
+    self.carWindow = window
+
+    if let window {
+      NSLog("[PlayTorrio CarPlay V5] CPWindow screen bounds = %@", NSStringFromCGRect(window.screen.bounds))
+    }
+
+    let tv = CPListItem(text: "TV / IPTV", detailText: "Chaînes en direct")
+    tv.handler = { [weak self] _, completion in
+      self?.showInfo(title: "TV / IPTV", text: "Ouvre la chaîne sur l’iPhone puis utilise le lecteur natif PlayTorrio.")
+      completion()
+    }
+
+    let movies = CPListItem(text: "Films & Séries", detailText: "Lecture PlayTorrio")
+    movies.handler = { [weak self] _, completion in
+      self?.showInfo(title: "Films & Séries", text: "La vidéo CarPlay reste contrôlée par iOS et le véhicule.")
+      completion()
+    }
+
+    let diagnostics = CPListItem(text: "Diagnostic CarPlay V5", detailText: window == nil ? "Scène sans CPWindow" : "CPWindow connectée")
+    let section = CPListSection(items: [tv, movies, diagnostics])
+    let root = CPListTemplate(title: "PlayTorrio", sections: [section])
+    interfaceController.setRootTemplate(root, animated: false, completion: nil)
   }
 
   private func showInfo(title: String, text: String) {
@@ -245,6 +257,7 @@ final class PlayTorrioCarPlaySceneDelegate: UIResponder, CPTemplateApplicationSc
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    NSLog("[PlayTorrio CarPlay V5] app launched")
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
