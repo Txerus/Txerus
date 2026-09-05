@@ -1,4 +1,4 @@
-name: Build PlayTorrio AirPlay PiP V3 IPA
+name: Build PlayTorrio CarPlay V4 IPA
 
 on:
   push:
@@ -27,12 +27,13 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Apply optimized AirPlay and PiP patch
+      - name: Apply PlayTorrio patches
         run: |
           cp ci_patch/AppDelegate.swift playtorrio/ios/Runner/AppDelegate.swift
           cp ci_patch/ios_native_player.dart playtorrio/lib/services/player/ios_native_player.dart
           cp ci_patch/ios_airplay_hls.dart playtorrio/lib/services/player/ios_airplay_hls.dart
           python3 ci_patch/apply_patch.py
+          python3 ci_patch/carplay_compat.py
 
       - name: Install dependencies
         working-directory: playtorrio
@@ -40,30 +41,31 @@ jobs:
           touch .env
           flutter pub get
 
-      - name: Build iOS V3
+      - name: Build iOS V4
         working-directory: playtorrio
-        run: flutter build ios --release --no-codesign --dart-define-from-file=.env --build-name=1.1.0-v3 --build-number=13
+        run: flutter build ios --release --no-codesign --dart-define-from-file=.env --build-name=1.1.0-v4 --build-number=14
 
-      - name: Verify bridge
+      - name: Verify build
         working-directory: playtorrio
         shell: bash
         run: |
           test -d build/ios/iphoneos/Runner.app
+          /usr/libexec/PlistBuddy -c 'Print :UIApplicationSceneManifest' build/ios/iphoneos/Runner.app/Info.plist
           find build/ios/iphoneos/Runner.app -iname '*ffmpeg*' -o -iname '*avcodec*' | head -20
 
-      - name: Package V3 IPA
+      - name: Package V4 IPA
         working-directory: playtorrio
         run: |
           cd build/ios/iphoneos
           rm -rf Payload
           mkdir Payload
           cp -R Runner.app Payload/
-          zip -qry ../../../PlayTorrio-AirPlay-PiP-V3.ipa Payload
+          zip -qry ../../../PlayTorrio-AirPlay-PiP-IPTV-CarPlay-V4.ipa Payload
 
-      - name: Upload V3 IPA artifact
+      - name: Upload V4 IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PlayTorrio-AirPlay-PiP-V3
-          path: playtorrio/PlayTorrio-AirPlay-PiP-V3.ipa
+          name: PlayTorrio-AirPlay-PiP-IPTV-CarPlay-V4
+          path: playtorrio/PlayTorrio-AirPlay-PiP-IPTV-CarPlay-V4.ipa
           if-no-files-found: error
           retention-days: 7
