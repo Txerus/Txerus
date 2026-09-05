@@ -1,5 +1,6 @@
 import AVFoundation
 import AVKit
+import CarPlay
 import Flutter
 import UIKit
 
@@ -99,65 +100,48 @@ private final class NativeAirPlayPlayerPlugin: NSObject, FlutterPlugin, AVPlayer
     }
   }
 
-  // MARK: - Picture in Picture lifecycle
-
   func playerViewControllerWillStartPictureInPicture(_ playerViewController: AVPlayerViewController) {
     isPiPTransitioning = true
-    NSLog("[PlayTorrio NativePlayer] PiP will start")
   }
 
   func playerViewControllerDidStartPictureInPicture(_ playerViewController: AVPlayerViewController) {
     isPiPActive = true
     isPiPTransitioning = false
-    // IMPORTANT: keep AVPlayer, the HLS server and the Flutter MethodChannel call alive.
-    // Do not finish native playback here; Flutter/MPV stays paused while PiP owns playback.
-    NSLog("[PlayTorrio NativePlayer] PiP started")
   }
 
   func playerViewController(_ playerViewController: AVPlayerViewController, failedToStartPictureInPictureWithError error: Error) {
     isPiPActive = false
     isPiPTransitioning = false
-    NSLog("[PlayTorrio NativePlayer] PiP failed: \(error)")
   }
 
   func playerViewControllerWillStopPictureInPicture(_ playerViewController: AVPlayerViewController) {
     isPiPTransitioning = true
-    NSLog("[PlayTorrio NativePlayer] PiP will stop")
   }
 
   func playerViewControllerDidStopPictureInPicture(_ playerViewController: AVPlayerViewController) {
     isPiPActive = false
     isPiPTransitioning = false
-    NSLog("[PlayTorrio NativePlayer] PiP stopped")
   }
 
   func playerViewController(
     _ playerViewController: AVPlayerViewController,
     restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
   ) {
-    // Tapping the PiP window must return to the native Apple player, not the
-    // underlying Flutter/MPV player. Re-present the same controller & AVPlayer.
     if playerViewController.presentingViewController != nil || playerViewController.viewIfLoaded?.window != nil {
       completionHandler(true)
       return
     }
-
     guard let presenter = topViewController() else {
       completionHandler(false)
       return
     }
-
     presenter.present(playerViewController, animated: true) {
       playerViewController.presentationController?.delegate = self
       completionHandler(true)
     }
   }
 
-  // MARK: - Full-screen / dismissal lifecycle
-
   func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
-    // AVPlayerViewController can disappear while iOS is moving playback into PiP.
-    // In that case, the native session must remain alive.
     guard !isPiPActive && !isPiPTransitioning else { return }
     finishNativePlayback()
   }
@@ -169,11 +153,7 @@ private final class NativeAirPlayPlayerPlugin: NSObject, FlutterPlugin, AVPlayer
     coordinator.animate(alongsideTransition: nil) { [weak self] _ in
       guard let self = self else { return }
       guard !self.isPiPActive && !self.isPiPTransitioning else { return }
-      // If the controller is still visible/presented, this was only a UIKit
-      // full-screen transition and not an explicit close. Keep native playback.
-      if playerViewController.presentingViewController != nil || playerViewController.viewIfLoaded?.window != nil {
-        return
-      }
+      if playerViewController.presentingViewController != nil || playerViewController.viewIfLoaded?.window != nil { return }
       self.finishNativePlayback()
     }
   }
@@ -182,12 +162,10 @@ private final class NativeAirPlayPlayerPlugin: NSObject, FlutterPlugin, AVPlayer
     guard !isFinishing, !isPiPActive, !isPiPTransitioning,
           let controller = playerViewController else { return }
     isFinishing = true
-
     let player = controller.player
     let position = player?.currentTime().seconds ?? 0
     let duration = player?.currentItem?.duration.seconds ?? 0
     player?.pause()
-
     pendingResult?([
       "positionMs": position.isFinite ? Int64(max(0, position) * 1000) : 0,
       "durationMs": duration.isFinite ? Int64(max(0, duration) * 1000) : 0
@@ -213,6 +191,56 @@ private final class NativeAirPlayPlayerPlugin: NSObject, FlutterPlugin, AVPlayer
       return topViewController(from: presented)
     }
     return root
+  }
+}
+
+// Native CarPlay scene. iOS 27 exposes the Video app category through the
+// CarPlay framework. This scene deliberately uses system templates only: iOS
+// and the head unit remain responsible for limiting video to supported,
+// stationary use. The existing AVPlayer/AirPlay path supplies the media layer.
+@available(iOS 14.0, *)
+@objc(PlayTorrioCarPlaySceneDelegate)
+final class PlayTorrioCarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
+  private weak var interfaceController: CPInterfaceController?
+
+  func templateApplicationScene(
+    _ templateApplicationScene: CPTemplateApplicationScene,
+    didConnect interfaceController: CPInterfaceController
+  ) {
+    self.interfaceController = interfaceController
+
+    let tv = CPListItem(text: "TV / IPTV", detailText: "Chaînes en direct")
+    tv.handler = { [weak self] _, completion in
+      self?.showInfo(title: "TV / IPTV", text: "Lance une chaîne dans PlayTorrio sur l’iPhone puis utilise AirPlay vidéo vers la voiture.")
+      completion()
+    }
+
+    let movies = CPListItem(text: "Films & Séries", detailText: "Lecture vidéo PlayTorrio")
+    movies.handler = { [weak self] _, completion in
+      self?.showInfo(title: "Films & Séries", text: "Lance le contenu sur l’iPhone. Le lecteur natif PlayTorrio prend en charge AirPlay et PiP.")
+      completion()
+    }
+
+    let status = CPListItem(text: "CarPlay iOS 27", detailText: "Mode vidéo à l’arrêt")
+    status.isEnabled = false
+
+    let section = CPListSection(items: [tv, movies, status])
+    let root = CPListTemplate(title: "PlayTorrio", sections: [section])
+    interfaceController.setRootTemplate(root, animated: false, completion: nil)
+  }
+
+  func templateApplicationScene(
+    _ templateApplicationScene: CPTemplateApplicationScene,
+    didDisconnectInterfaceController interfaceController: CPInterfaceController
+  ) {
+    self.interfaceController = nil
+  }
+
+  private func showInfo(title: String, text: String) {
+    guard let interfaceController else { return }
+    let action = CPAlertAction(title: "OK", style: .default) { _ in }
+    let alert = CPAlertTemplate(titleVariants: [title, text], actions: [action])
+    interfaceController.presentTemplate(alert, animated: true, completion: nil)
   }
 }
 
