@@ -194,10 +194,6 @@ private final class NativeAirPlayPlayerPlugin: NSObject, FlutterPlugin, AVPlayer
   }
 }
 
-// Native CarPlay scene. iOS 27 exposes the Video app category through the
-// CarPlay framework. This scene deliberately uses system templates only: iOS
-// and the head unit remain responsible for limiting video to supported,
-// stationary use. The existing AVPlayer/AirPlay path supplies the media layer.
 @available(iOS 14.0, *)
 @objc(PlayTorrioCarPlaySceneDelegate)
 final class PlayTorrioCarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
@@ -222,7 +218,6 @@ final class PlayTorrioCarPlaySceneDelegate: UIResponder, CPTemplateApplicationSc
     }
 
     let status = CPListItem(text: "CarPlay iOS 27", detailText: "Mode vidéo à l’arrêt")
-    status.isEnabled = false
 
     let section = CPListSection(items: [tv, movies, status])
     let root = CPListTemplate(title: "PlayTorrio", sections: [section])
