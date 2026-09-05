@@ -1,4 +1,4 @@
-name: Build PlayTorrio CarPlay V4 IPA
+name: Build PlayTorrio CarPlay V5 IPA
 
 on:
   push:
@@ -33,7 +33,7 @@ jobs:
           cp ci_patch/ios_native_player.dart playtorrio/lib/services/player/ios_native_player.dart
           cp ci_patch/ios_airplay_hls.dart playtorrio/lib/services/player/ios_airplay_hls.dart
           python3 ci_patch/apply_patch.py
-          python3 ci_patch/carplay_compat.py
+          python3 ci_patch/carplay_v5.py
 
       - name: Install dependencies
         working-directory: playtorrio
@@ -41,9 +41,9 @@ jobs:
           touch .env
           flutter pub get
 
-      - name: Build iOS V4
+      - name: Build iOS V5
         working-directory: playtorrio
-        run: flutter build ios --release --no-codesign --dart-define-from-file=.env --build-name=1.1.0-v4 --build-number=14
+        run: flutter build ios --release --no-codesign --dart-define-from-file=.env --build-name=1.1.0-v5 --build-number=15
 
       - name: Verify build
         working-directory: playtorrio
@@ -51,21 +51,22 @@ jobs:
         run: |
           test -d build/ios/iphoneos/Runner.app
           /usr/libexec/PlistBuddy -c 'Print :UIApplicationSceneManifest' build/ios/iphoneos/Runner.app/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :NSUserActivityTypes' build/ios/iphoneos/Runner.app/Info.plist || true
           find build/ios/iphoneos/Runner.app -iname '*ffmpeg*' -o -iname '*avcodec*' | head -20
 
-      - name: Package V4 IPA
+      - name: Package V5 IPA
         working-directory: playtorrio
         run: |
           cd build/ios/iphoneos
           rm -rf Payload
           mkdir Payload
           cp -R Runner.app Payload/
-          zip -qry ../../../PlayTorrio-AirPlay-PiP-IPTV-CarPlay-V4.ipa Payload
+          zip -qry ../../../PlayTorrio-AirPlay-PiP-IPTV-CarPlay-V5.ipa Payload
 
-      - name: Upload V4 IPA artifact
+      - name: Upload V5 IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PlayTorrio-AirPlay-PiP-IPTV-CarPlay-V4
-          path: playtorrio/PlayTorrio-AirPlay-PiP-IPTV-CarPlay-V4.ipa
+          name: PlayTorrio-AirPlay-PiP-IPTV-CarPlay-V5
+          path: playtorrio/PlayTorrio-AirPlay-PiP-IPTV-CarPlay-V5.ipa
           if-no-files-found: error
           retention-days: 7
